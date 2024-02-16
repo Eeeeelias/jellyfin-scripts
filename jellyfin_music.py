@@ -1,4 +1,6 @@
 import random
+import sys
+
 import pandas as pd
 import requests
 import os
@@ -11,8 +13,8 @@ load_dotenv()
 API_KEY = os.getenv('API_KEY')
 JELLYFIN_IP = os.getenv('JELLYFIN_IP')
 USER_NAME = os.getenv('USER_NAME')
-PLAYLIST_LENGTH = int(os.getenv('PLAYLIST_LENGTH'))  # assuming this is an integer
-PLAYLIST_NAME = os.getenv('PLAYLIST_NAME')
+PLAYLIST_LENGTH = int(os.getenv('PLAYLIST_LENGTH')) if os.getenv('PLAYLIST_LENGTH') else 6
+PLAYLIST_NAME = os.getenv('PLAYLIST_NAME') if os.getenv('PLAYLIST_NAME') else 'Daily Random Playlist'
 
 ### These should just work ###
 CLIENT = 'DailyPlaylistCreator'
@@ -144,8 +146,10 @@ def create_jellyfin_playlist(user_id, playlist_name, playlist_items):
 
 
 if __name__ == '__main__':
-    if not API_KEY or not JELLYFIN_IP or not USER_NAME or not PLAYLIST_LENGTH or not PLAYLIST_NAME:
-        print("Please set the environment variables")
+    if not API_KEY or not JELLYFIN_IP or not USER_NAME:
+        print("Please set the API_KEY, JELLYFIN_IP and USER_NAME environment variables.\nTo do this, make a copy of the"
+              ".example.env file in the same directory as this script and fill it in with your values. Then rename it to .env.")
+        sys.exit(1)
     user_id = get_users(USER_NAME)
     song_data = get_all_songs(user_id)
     playlist = create_random_playlist(pd.DataFrame(song_data).T, PLAYLIST_LENGTH * 60 * 60 * 10000000)
