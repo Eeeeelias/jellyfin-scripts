@@ -19,10 +19,9 @@ PLAYLIST_NAME = os.getenv('PLAYLIST_NAME') if os.getenv('PLAYLIST_NAME') else 'D
 ### These should just work ###
 CLIENT = 'DailyPlaylistCreator'
 DEVICE = 'DailyPlaylistCreator'
-DEVICE_ID = 'lskdjfoeijalksnefdoijlkydefjsoefjdaloroo'
-VERSION = '10.8.13'
+VERSION = '1.0.0'
 
-headers = {'Authorization': f'MediaBrowser Client="{CLIENT}", Device="{DEVICE}", DeviceID="{DEVICE_ID}", '
+headers = {'Authorization': f'MediaBrowser Client="{CLIENT}", Device="{DEVICE}", '
                             f'Version="{VERSION}", Token="{API_KEY}"'}
 
 
