@@ -12,6 +12,6 @@ Then you can run the scripts with `python3 <script>.py`.
 
 ## Scripts
 - `jellyfin_music.py` - A script that creates a random playlist based on what you have listened to recently. It encourages finding new music.
-
+- `jellyfin_based_shutdown.py` - A script that lets you shut down your jellyfin server based on the current activity. It will shutdown after the the current episode has finished and notify all users.
 
 These scripts can be run as a cronjob, based on your needs.
