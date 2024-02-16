@@ -1,0 +1,4 @@
+pandas~=2.1.4
+requests~=2.31.0
+python-dotenv~=0.21.0
+numpy~=1.26.3
