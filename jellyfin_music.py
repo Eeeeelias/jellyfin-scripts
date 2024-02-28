@@ -1,3 +1,4 @@
+import pickle
 import random
 import sys
 
@@ -25,7 +26,18 @@ headers = {'Authorization': f'MediaBrowser Client="{CLIENT}", Device="{DEVICE}",
                             f'Version="{VERSION}", Token="{API_KEY}"'}
 
 
-def get_users(user=None):
+# rank the songs by the play_count and the artist play_count to get songs that have been played a lot recently
+def rank_recent(df: pd.DataFrame) -> pd.DataFrame:
+    artist_play_count = df.groupby('album_artist')['play_count'].sum()
+    artist_play_count = artist_play_count / artist_play_count.sum()
+    df['artist_play_count'] = df['album_artist'].map(artist_play_count)
+    df['artist_play_count'] = df['artist_play_count'].fillna(0)
+    df['rank'] = df['artist_play_count'] * df['play_count']
+    df = df.sort_values('rank', ascending=False)
+    return df.head(50)
+
+
+def get_users(user=None) -> dict:
     sessions = requests.get(f"{JELLYFIN_IP}/Users", headers=headers)
     session_data = sessions.json()
     users = {}
@@ -36,7 +48,7 @@ def get_users(user=None):
     return users
 
 
-def get_all_songs(user_id):
+def get_all_songs(user_id) -> dict:
     request = f"{JELLYFIN_IP}/Users/{user_id}/Items?SortBy=Album,SortName&SortOrder=Ascending&" \
               f"IncludeItemTypes=Audio&Recursive=true&Fields=AudioInfo,ParentId,Path,Genres&StartIndex=0&ImageTypeLimit=1&" \
               f"ParentId=7e64e319657a9516ec78490da03edccb"
@@ -68,14 +80,31 @@ def get_all_songs(user_id):
     return items
 
 
-def create_random_playlist(song_df, length=360000):
+def get_similar(song_id) -> list:
+    request = f"{JELLYFIN_IP}/Items/{song_id}/similar"
+    sessions = requests.get(request, headers=headers)
+    session_data = sessions.json()
+    similar = [i['Id'] for i in session_data.get('Items')]
+    return similar
+
+
+def create_random_playlist(song_df, length=360000) -> list:
     daily_playlist_items = []
     # convert date to datetime
     song_df['last_played'] = pd.to_datetime(song_df['last_played'])
 
     df = song_df.sort_values('last_played', ascending=False)
 
-    top_latest = df.head(50).sort_values('play_count', ascending=False).head(10)
+    top_latest = rank_recent(df.head(100))
+    for i in top_latest.index:
+        similar = get_similar(i)
+        daily_playlist_items.extend(similar[:3])
+    # for the five best artists, get at max 5 songs as the other songs will likely come by the other methods
+    top_artists = top_latest['album_artist'].value_counts().head(5).index
+    for artist in top_artists:
+        artist_songs = df[df['album_artist'] == artist].index
+        daily_playlist_items.extend([random.choice(artist_songs) for _ in range(random.randint(3, 5))])
+
     # add 5-8 random songs from top_latest to daily_playlist_items
     daily_playlist_items.extend([random.choice(top_latest.index) for _ in range(random.randint(5, 8))])
 
@@ -83,14 +112,18 @@ def create_random_playlist(song_df, length=360000):
     favourites = df[df['is_favorite']].index
     daily_playlist_items.extend([random.choice(favourites) for _ in range(random.randint(0, 5))])
 
+    # some issue with the daily_playlist_items, so we need to get the working keys
+    working = df.index.intersection(daily_playlist_items)
+    print(len(working), len(daily_playlist_items))
+
     # get the artists of daily_playlist_items and for each one get 7-10 songs randomly
-    artists = df.loc[daily_playlist_items, 'album_artist'].unique()
+    artists = df.loc[working, 'album_artist'].unique()
     for artist in artists:
         artist_songs = df[df['album_artist'] == artist].index
         daily_playlist_items.extend([random.choice(artist_songs) for _ in range(random.randint(7, 10))])
 
     # get the albums of daily_playlist_items and for each one get 7-10 songs randomly
-    albums = df.loc[daily_playlist_items, 'album_id'].unique()
+    albums = df.loc[working, 'album_id'].unique()
     for album in albums:
         album_songs = df[df['album_id'] == album].index
         daily_playlist_items.extend([random.choice(album_songs) for _ in range(random.randint(7, 10))])
@@ -116,11 +149,11 @@ def create_random_playlist(song_df, length=360000):
         daily_playlist_items.pop()
         playlist_length = sum([song_df.loc[i, 'length'] for i in daily_playlist_items])
 
-    print(f"Final playlist has {len(daily_playlist_items)} items")
+    print(f"Final playlist has {len(daily_playlist_items)} items and is {playlist_length / 10000000 / 60 / 60:.2f} hours long.")
     return daily_playlist_items
 
 
-def create_jellyfin_playlist(user_id, playlist_name, playlist_items):
+def create_jellyfin_playlist(user_id, playlist_name, playlist_items) -> int:
     # get all playlists and filter for the playlist_name, if it exists, delete it
     request = f"{JELLYFIN_IP}/Users/{user_id}/Items?parentId=821d3a92eeb242a0a3a67a6e7fafe481"
     sessions = requests.get(request, headers=headers)
@@ -151,9 +184,11 @@ if __name__ == '__main__':
         sys.exit(1)
     user_id = get_users(USER_NAME)
     song_data = get_all_songs(user_id)
+    # pickle.dump(song_data, open('example_song_data.pkl', 'wb'))
+    # song_data = pickle.load(open('example_song_data.pkl', 'rb'))
     playlist = create_random_playlist(pd.DataFrame(song_data).T, PLAYLIST_LENGTH * 60 * 60 * 10000000)
     playlist_status = create_jellyfin_playlist(user_id, PLAYLIST_NAME, playlist)
     if playlist_status == 200:
-        print("Playlist created successfully:", playlist_status)
+         print("Playlist created successfully:", playlist_status)
     else:
-        print("Playlist creation failed:", playlist_status)
+         print("Playlist creation failed:", playlist_status)
