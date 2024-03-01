@@ -80,6 +80,43 @@ def get_all_songs(user_id) -> dict:
     return items
 
 
+def get_listen_data(user_id) -> dict:
+    request = f"{JELLYFIN_IP}/user_usage_stats/submit_custom_query"
+    data = {'CustomQueryString': 'SELECT DateCreated, ItemId, PlayDuration '
+                                 'FROM PlaybackActivity '
+                                 f'WHERE UserId="{user_id}" AND ItemType="Audio" '
+                                 'ORDER BY DateCreated DESC '
+                                 'LIMIT 100',
+            'ReplaceUserId': False}
+    sessions = requests.post(request, headers=headers, json=data)
+    # check if the request was successful
+    if sessions.status_code != 200:
+        print("Playback Reporting not available. Skipping this step.")
+        return {}
+    session_data = sessions.json()
+    return session_data
+
+
+# check if the song has been listened to for more than 30 seconds
+def check_single_song(song_id, user_id) -> bool:
+    request = f"{JELLYFIN_IP}/user_usage_stats/submit_custom_query"
+    data = {'CustomQueryString': 'SELECT DateCreated, ItemId, PlayDuration '
+                                 'FROM PlaybackActivity '
+                                 f'WHERE UserId="{user_id}" AND ItemType="Audio" AND ItemId="{song_id}" '
+                                 'ORDER BY DateCreated DESC ',
+            'ReplaceUserId': False}
+
+    sessions = requests.post(request, headers=headers, json=data)
+    print("checking song")
+    if sessions.status_code != 200:
+        return True
+    session_data = sessions.json()
+    try:
+        return int(session_data['results'][0][2]) > 30
+    except IndexError:
+        return True
+
+
 def get_similar(song_id) -> list:
     request = f"{JELLYFIN_IP}/Items/{song_id}/similar"
     sessions = requests.get(request, headers=headers)
@@ -88,7 +125,7 @@ def get_similar(song_id) -> list:
     return similar
 
 
-def create_random_playlist(song_df, length=360000) -> list:
+def create_random_playlist(song_df, listen_data, length=360000) -> list:
     daily_playlist_items = []
     # convert date to datetime
     song_df['last_played'] = pd.to_datetime(song_df['last_played'])
@@ -140,6 +177,12 @@ def create_random_playlist(song_df, length=360000) -> list:
     daily_playlist_items = daily_playlist_items[:10] + random.sample(daily_playlist_items[10:],
                                                                      len(daily_playlist_items) - 10)
 
+    # remove songs the user has listened to only once and for less than 30 seconds using check_single song
+    if listen_data:
+        single_songs = [i for i in daily_playlist_items if song_df.loc[i, 'play_count'] == 1]
+        single_songs_remove = [i for i in single_songs if not check_single_song(i, user_id)]
+        daily_playlist_items = [i for i in daily_playlist_items if i not in single_songs_remove]
+
     # check and remove duplicates without using set to retain order
     daily_playlist_items = [i for n, i in enumerate(daily_playlist_items) if i not in daily_playlist_items[:n]]
 
@@ -182,11 +225,15 @@ if __name__ == '__main__':
         print("Please set the API_KEY, JELLYFIN_IP and USER_NAME environment variables.\nTo do this, make a copy of the"
               ".example.env file in the same directory as this script and fill it in with your values. Then rename it to .env.")
         sys.exit(1)
+    # acquire necessary data
     user_id = get_users(USER_NAME)
     song_data = get_all_songs(user_id)
+    listen_data = get_listen_data(user_id)
     # pickle.dump(song_data, open('example_song_data.pkl', 'wb'))
     # song_data = pickle.load(open('example_song_data.pkl', 'rb'))
-    playlist = create_random_playlist(pd.DataFrame(song_data).T, PLAYLIST_LENGTH * 60 * 60 * 10000000)
+
+    # create the playlist
+    playlist = create_random_playlist(pd.DataFrame(song_data).T, listen_data, PLAYLIST_LENGTH * 60 * 60 * 10000000)
     playlist_status = create_jellyfin_playlist(user_id, PLAYLIST_NAME, playlist)
     if playlist_status == 200:
          print("Playlist created successfully:", playlist_status)
