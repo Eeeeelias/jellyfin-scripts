@@ -35,12 +35,14 @@ def rank_recent(df: pd.DataFrame) -> pd.DataFrame:
     return df.head(50)
 
 
-def rank_recent_by_activity(df: pd.DataFrame, list_activity: dict) -> pd.DataFrame:
+def rank_recent_by_activity(df: pd.DataFrame, list_activity: dict, lookup_df) -> pd.DataFrame:
     # rank the songs by the total play_count vs. the play_count in the last 7 days
     # give every song a pseudo count of 1 so that songs with no play_count in the last 7 days are not removed
     df['last_7_days'] = 1
     for i in list_activity['results']:
-        if int(i[2]) < 30:
+        # check if the song has been played for at least 80% of the song
+        if int(i[2]) <= lookup_df.loc[lookup_df.index == i[1], 'length'].values[0] * 0.8:
+            df.loc[df.index == i[1], 'last_7_days'] -= 1
             continue
         df.loc[df.index == i[1], 'last_7_days'] += 1
     df['last_7_days'] = df['last_7_days'] / df['play_count']
@@ -85,10 +87,11 @@ def get_all_songs(user_id) -> dict:
         song_name = i['Name']
         path = i['Path']
         genre = i['Genres']
+        # length in seconds
+        length = i['RunTimeTicks'] / 10000000
         items[i['Id']] = {'song_name': song_name, 'play_count': play_count, 'last_played': last_played, 'path': path,
                           'album_id': album_id, 'album_artist': album_artist, 'is_favorite': is_favorite,
-                          'length': i['RunTimeTicks'],
-                          'genre': genre}
+                          'length': length, 'genre': genre}
     return items
 
 
@@ -129,7 +132,7 @@ def get_listen_data(user_id, days=7) -> dict:
 
 
 # check if the song has been listened to for more than 30 seconds
-def check_single_song(song_id, user_id) -> bool:
+def check_single_song(song_id, user_id, total_length) -> bool:
     request = f"{JELLYFIN_IP}/user_usage_stats/submit_custom_query"
     data = {'CustomQueryString': 'SELECT DateCreated, ItemId, PlayDuration '
                                  'FROM PlaybackActivity '
@@ -142,8 +145,11 @@ def check_single_song(song_id, user_id) -> bool:
         return True
     session_data = sessions.json()
     try:
-        return int(session_data['results'][0][2]) > 30
+        # get the average play duration across all plays and check if the song has been played for at least 80% of the song
+        return sum([int(i[2]) for i in session_data['results']]) / len(session_data['results']) >= total_length * 0.8
     except IndexError:
+        return True
+    except ZeroDivisionError:
         return True
 
 
@@ -161,11 +167,7 @@ def culminate_potential_songs(song_df, listen_data) -> list:
     song_df['last_played'] = pd.to_datetime(song_df['last_played'])
 
     df = song_df.sort_values('last_played', ascending=False)
-
-    if listen_data:
-        top_latest = rank_recent_by_activity(df.head(100), listen_data)
-    else:
-        top_latest = rank_recent(df.head(100))
+    top_latest = rank_recent_by_activity(df.head(100), listen_data, df) if listen_data else rank_recent(df.head(100))
 
     for i in top_latest.index:
         similar = get_similar(i)
@@ -218,8 +220,8 @@ def culminate_potential_songs(song_df, listen_data) -> list:
 # remove songs that are duplicated or probably unfit for the playlist
 def prune_playlist(song_df, listen_data, daily_playlist_items, length) -> list:
     if listen_data:
-        single_songs = [i for i in daily_playlist_items if song_df.loc[i, 'play_count'] == 1]
-        single_songs_remove = [i for i in single_songs if not check_single_song(i, user_id)]
+        single_songs = [i for i in daily_playlist_items if 1 < song_df.loc[i, 'play_count'] <= 20]
+        single_songs_remove = [i for i in single_songs if not check_single_song(i, user_id, song_df.loc[i, 'length'])]
         daily_playlist_items = [i for i in daily_playlist_items if i not in single_songs_remove]
 
     # check and remove duplicates without using set to retain order
@@ -232,7 +234,7 @@ def prune_playlist(song_df, listen_data, daily_playlist_items, length) -> list:
         playlist_length = sum([song_df.loc[i, 'length'] for i in daily_playlist_items])
 
     print(
-        f"Final playlist has {len(daily_playlist_items)} items and is {playlist_length / 10000000 / 60 / 60:.2f} hours long.")
+        f"Final playlist has {len(daily_playlist_items)} items and is {playlist_length / 60 / 60:.2f} hours long.")
     return daily_playlist_items
 
 
@@ -253,8 +255,9 @@ def create_jellyfin_playlist(user_id, playlist_name, playlist_items) -> int:
             print("Playlist exists, deleting it")
             request = f"{JELLYFIN_IP}/Items/{i['Id']}"
             sessions = requests.delete(request, headers=headers)
-            if sessions.status_code == 204:
-                print("Playlist deleted successfully")
+            if sessions.status_code != 204:
+                print("Error deleting playlist:", sessions.status_code)
+                return sessions.status_code
 
     request = f"{JELLYFIN_IP}/Playlists"
     data = {
@@ -281,7 +284,7 @@ if __name__ == '__main__':
     # song_data = pickle.load(open('example_song_data.pkl', 'rb'))
 
     # create the playlist
-    playlist = create_random_playlist(pd.DataFrame(song_data).T, listen_data, PLAYLIST_LENGTH * 60 * 60 * 10000000)
+    playlist = create_random_playlist(pd.DataFrame(song_data).T, listen_data, PLAYLIST_LENGTH * 60 * 60)
     playlist_status = create_jellyfin_playlist(user_id, PLAYLIST_NAME, playlist)
     if playlist_status == 200:
          print("Playlist created successfully:", playlist_status)
