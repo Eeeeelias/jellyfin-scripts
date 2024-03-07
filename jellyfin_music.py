@@ -131,7 +131,7 @@ def get_listen_data(user_id, days=7) -> dict:
     return session_data
 
 
-# check if the song has been listened to for more than 30 seconds
+# check if the song has been listened to for long enough to be considered as listened to
 def check_single_song(song_id, user_id, total_length) -> bool:
     request = f"{JELLYFIN_IP}/user_usage_stats/submit_custom_query"
     data = {'CustomQueryString': 'SELECT DateCreated, ItemId, PlayDuration '
@@ -183,35 +183,53 @@ def culminate_potential_songs(song_df, listen_data) -> list:
     daily_playlist_items.extend([random.choice(top_latest.index) for _ in range(random.randint(5, 8))])
 
     # get 0 - 5 random songs from the favourites
-    favourites = df[df['is_favorite']].index
-    daily_playlist_items.extend([random.choice(favourites) for _ in range(random.randint(0, 5))])
+    try:
+        favourites = df[df['is_favorite']].index
+        daily_playlist_items.extend([random.choice(favourites) for _ in range(random.randint(0, 5))])
+    except KeyError:
+        pass
 
     # some issue with the daily_playlist_items, so we need to get the working keys
     working = df.index.intersection(daily_playlist_items)
 
     # get the artists of daily_playlist_items and for each one get 7-10 songs randomly
     artists = df.loc[working, 'album_artist'].unique()
-    for artist in artists:
-        artist_songs = df[df['album_artist'] == artist].index
-        daily_playlist_items.extend([random.choice(artist_songs) for _ in range(random.randint(7, 10))])
+    try:
+        for artist in artists:
+            artist_songs = df[df['album_artist'] == artist].index
+            daily_playlist_items.extend([random.choice(artist_songs) for _ in range(random.randint(7, 10))])
+    except KeyError:
+        pass
 
     # get the albums of daily_playlist_items and for each one get 7-10 songs randomly
     albums = df.loc[working, 'album_id'].unique()
-    for album in albums:
-        album_songs = df[df['album_id'] == album].index
-        daily_playlist_items.extend([random.choice(album_songs) for _ in range(random.randint(7, 10))])
+    try:
+        for album in albums:
+            album_songs = df[df['album_id'] == album].index
+            daily_playlist_items.extend([random.choice(album_songs) for _ in range(random.randint(7, 10))])
+    except KeyError:
+        pass
 
     # get 10-15 random songs from the rest of the songs where playcount > 3
-    rest_songs = df[df['play_count'] > 3].index
-    daily_playlist_items.extend([random.choice(rest_songs) for _ in range(random.randint(10, 15))])
+    try:
+        rest_songs = df[df['play_count'] > 3].index
+        daily_playlist_items.extend([random.choice(rest_songs) for _ in range(random.randint(10, 15))])
+    except KeyError:
+        pass
 
     # get 5-10 random songs from the rest of the songs where playcount <= 3
-    rest_songs = df[df['play_count'] <= 3].index
-    daily_playlist_items.extend([random.choice(rest_songs) for _ in range(random.randint(5, 10))])
+    try:
+        rest_songs = df[df['play_count'] <= 3].index
+        daily_playlist_items.extend([random.choice(rest_songs) for _ in range(random.randint(5, 10))])
+    except KeyError:
+        pass
 
     # mix the daily_playlist_items while retaining the order of the first 10 songs
-    daily_playlist_items = daily_playlist_items[:20] + random.sample(daily_playlist_items[20:],
-                                                                     len(daily_playlist_items) - 20)
+    try:
+        daily_playlist_items = daily_playlist_items[:20] + random.sample(daily_playlist_items[20:],
+                                                                         len(daily_playlist_items) - 20)
+    except ValueError:
+        pass
 
     print(f"Playlist has {len(daily_playlist_items)} items before pruning.")
     return daily_playlist_items
