@@ -1,12 +1,11 @@
 import pickle
 import random
 import sys
-import datetime
 import pandas as pd
 import requests
 import os
 from dotenv import load_dotenv
-
+pd.options.mode.copy_on_write = True # to avoid the SettingWithCopyWarning
 
 load_dotenv()
 
@@ -38,6 +37,7 @@ def rank_recent(df: pd.DataFrame) -> pd.DataFrame:
 def rank_recent_by_activity(df: pd.DataFrame, list_activity: dict, lookup_df) -> pd.DataFrame:
     # rank the songs by the total play_count vs. the play_count in the last 7 days
     # give every song a pseudo count of 1 so that songs with no play_count in the last 7 days are not removed
+
     df['last_7_days'] = 1
     for i in list_activity['results']:
         # check if the song has been played for at least 80% of the song
@@ -45,13 +45,13 @@ def rank_recent_by_activity(df: pd.DataFrame, list_activity: dict, lookup_df) ->
             df.loc[df.index == i[1], 'last_7_days'] -= 1
             continue
         df.loc[df.index == i[1], 'last_7_days'] += 1
-    df['last_7_days'] = df['last_7_days'] / df['play_count']
-    df['rank'] = df['last_7_days'] * df['play_count']
+    df.loc[:, 'last_7_days'] = df.loc[:, 'last_7_days'] / df.loc[:, 'play_count']
+    df['rank'] = df.loc[:, 'last_7_days'] * df.loc[:, 'play_count']
     df = df.sort_values('rank', ascending=False)
     return df.head(50)
 
 
-def get_users(user=None) -> dict:
+def get_users(user=None) -> dict | str:
     sessions = requests.get(f"{JELLYFIN_IP}/Users", headers=headers)
     session_data = sessions.json()
     users = {}
@@ -62,7 +62,7 @@ def get_users(user=None) -> dict:
     return users
 
 
-def get_all_songs(user_id) -> dict:
+def get_all_songs(user_id: str) -> dict:
     request = f"{JELLYFIN_IP}/Users/{user_id}/Items?SortBy=Album,SortName&SortOrder=Ascending&" \
               f"IncludeItemTypes=Audio&Recursive=true&Fields=AudioInfo,ParentId,Path,Genres&StartIndex=0&ImageTypeLimit=1&" \
               f"ParentId=7e64e319657a9516ec78490da03edccb"
@@ -96,7 +96,7 @@ def get_all_songs(user_id) -> dict:
 
 
 # returns the listen data for the last 7 days and if the result is empty, return the last 100 plays
-def get_listen_data(user_id, days=7) -> dict:
+def get_listen_data(user_id: str, days=7) -> dict:
     # get the date 7 days ago
     request = f"{JELLYFIN_IP}/user_usage_stats/submit_custom_query"
     data = {'CustomQueryString': 'SELECT DateCreated, ItemId, PlayDuration '
@@ -132,7 +132,7 @@ def get_listen_data(user_id, days=7) -> dict:
 
 
 # check if the song has been listened to for long enough to be considered as listened to
-def check_single_song(song_id, user_id, total_length) -> bool:
+def check_single_song(song_id: str, user_id: str, total_length: int) -> bool:
     request = f"{JELLYFIN_IP}/user_usage_stats/submit_custom_query"
     data = {'CustomQueryString': 'SELECT DateCreated, ItemId, PlayDuration '
                                  'FROM PlaybackActivity '
@@ -153,7 +153,7 @@ def check_single_song(song_id, user_id, total_length) -> bool:
         return True
 
 
-def get_similar(song_id) -> list:
+def get_similar(song_id: str) -> list:
     request = f"{JELLYFIN_IP}/Items/{song_id}/similar"
     sessions = requests.get(request, headers=headers)
     session_data = sessions.json()
@@ -161,10 +161,10 @@ def get_similar(song_id) -> list:
     return similar
 
 
-def culminate_potential_songs(song_df, listen_data) -> list:
+def culminate_potential_songs(song_df: pd.DataFrame, listen_data: dict) -> list:
     daily_playlist_items = []
     # convert date to datetime
-    song_df['last_played'] = pd.to_datetime(song_df['last_played'])
+    song_df.loc[:, 'last_played'] = pd.to_datetime(song_df['last_played'])
 
     df = song_df.sort_values('last_played', ascending=False)
     top_latest = rank_recent_by_activity(df.head(100), listen_data, df) if listen_data else rank_recent(df.head(100))
@@ -236,7 +236,7 @@ def culminate_potential_songs(song_df, listen_data) -> list:
 
 
 # remove songs that are duplicated or probably unfit for the playlist
-def prune_playlist(song_df, listen_data, daily_playlist_items, length) -> list:
+def prune_playlist(song_df: pd.DataFrame, listen_data: dict, daily_playlist_items: list, length: int) -> list:
     if listen_data:
         single_songs = [i for i in daily_playlist_items if 1 < song_df.loc[i, 'play_count'] <= 20]
         single_songs_remove = [i for i in single_songs if not check_single_song(i, user_id, song_df.loc[i, 'length'])]
@@ -256,14 +256,14 @@ def prune_playlist(song_df, listen_data, daily_playlist_items, length) -> list:
     return daily_playlist_items
 
 
-def create_random_playlist(song_df, listen_data, length=360000) -> list:
+def create_random_playlist(song_df: pd.DataFrame, listen_data: dict, length=360000) -> list:
     daily_playlist_items = culminate_potential_songs(song_df, listen_data)
     # pruning the list
     daily_playlist_items = prune_playlist(song_df, listen_data, daily_playlist_items, length)
     return daily_playlist_items
 
 
-def create_jellyfin_playlist(user_id, playlist_name, playlist_items) -> int:
+def create_jellyfin_playlist(user_id: str, playlist_name: str, playlist_items: list) -> int:
     # get all playlists and filter for the playlist_name, if it exists, delete it
     request = f"{JELLYFIN_IP}/Users/{user_id}/Items?parentId=821d3a92eeb242a0a3a67a6e7fafe481"
     sessions = requests.get(request, headers=headers)
