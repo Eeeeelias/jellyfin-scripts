@@ -1,3 +1,4 @@
+import math
 import pickle
 import random
 import sys
@@ -5,7 +6,8 @@ import pandas as pd
 import requests
 import os
 from dotenv import load_dotenv
-pd.options.mode.copy_on_write = True # to avoid the SettingWithCopyWarning
+
+pd.options.mode.copy_on_write = True  # to avoid the SettingWithCopyWarning
 
 load_dotenv()
 
@@ -23,6 +25,15 @@ headers = {'Authorization': f'MediaBrowser Client="{CLIENT}", Device="{DEVICE}",
                             f'Version="{VERSION}", Token="{API_KEY}"'}
 
 
+# scoring function for the song rank
+def score_function(recent_play_count: int, total_play_count: int, days_since_last_played: int,
+                   weights: tuple[float, float, float] = (0.55, 0.25, 0.2), decay_rate: float = 0.5) -> float:
+    # weights: (recent_play_count, total_play_count, days_since_last_played)
+    return ((weights[0] * recent_play_count) +
+            (weights[1] * (1 / 1 + math.e ** ((-decay_rate) * days_since_last_played))) +
+            (weights[2] * (total_play_count / (1 + total_play_count))))
+
+
 # rank the songs by the play_count and the artist play_count to get songs that have been played a lot recently
 def rank_recent(df: pd.DataFrame) -> pd.DataFrame:
     artist_play_count = df.groupby('album_artist')['play_count'].sum()
@@ -35,9 +46,6 @@ def rank_recent(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def rank_recent_by_activity(df: pd.DataFrame, list_activity: dict, lookup_df) -> pd.DataFrame:
-    # rank the songs by the total play_count vs. the play_count in the last 7 days
-    # give every song a pseudo count of 1 so that songs with no play_count in the last 7 days are not removed
-
     df['last_7_days'] = 1
     for i in list_activity['results']:
         # check if the song has been played for at least 80% of the song
@@ -45,8 +53,10 @@ def rank_recent_by_activity(df: pd.DataFrame, list_activity: dict, lookup_df) ->
             df.loc[df.index == i[1], 'last_7_days'] -= 1
             continue
         df.loc[df.index == i[1], 'last_7_days'] += 1
-    df.loc[:, 'last_7_days'] = df.loc[:, 'last_7_days'] / df.loc[:, 'play_count']
-    df['rank'] = df.loc[:, 'last_7_days'] * df.loc[:, 'play_count']
+    df['last_played'] = pd.to_datetime(df['last_played'], utc=True)
+    df['days_since_last_played'] = (pd.to_datetime('now', utc=True) - df['last_played']).dt.days
+    df['rank'] = df.apply(lambda x: score_function(x['last_7_days'], x['play_count'], x['days_since_last_played']),
+                          axis=1)
     df = df.sort_values('rank', ascending=False)
     return df.head(50)
 
@@ -161,10 +171,31 @@ def get_similar(song_id: str) -> list:
     return similar
 
 
+def random_songs_by_attribute(song_df: pd.DataFrame, attribute: str, a: int, b: int) -> list:
+    # get the artists of daily_playlist_items and for each one get 7-10 songs randomly
+    selected_songs = []
+    artists = song_df.loc[:, attribute].unique()
+    try:
+        for artist in artists:
+            attribute_songs = song_df[song_df[attribute] == artist].index
+            selected_songs.extend([random.choice(attribute_songs) for _ in range(random.randint(a, b))])
+    except KeyError:
+        pass
+    return selected_songs
+
+
+def random_songs_by_play_count(song_df: pd.DataFrame, min_play_count: int, max_play_count: int, a: int, b: int) -> list:
+    try:
+        rest_songs = song_df[(song_df['play_count'] > min_play_count) & (song_df['play_count'] < max_play_count)].index
+        return [random.choice(rest_songs) for _ in range(random.randint(a, b))]
+    except KeyError:
+        return []
+
+
 def culminate_potential_songs(song_df: pd.DataFrame, listen_data: dict) -> list:
     daily_playlist_items = []
     # convert date to datetime
-    song_df.loc[:, 'last_played'] = pd.to_datetime(song_df['last_played'])
+    song_df.loc[:, 'last_played'] = pd.to_datetime(song_df.loc[:, 'last_played'])
 
     df = song_df.sort_values('last_played', ascending=False)
     top_latest = rank_recent_by_activity(df.head(100), listen_data, df) if listen_data else rank_recent(df.head(100))
@@ -185,44 +216,26 @@ def culminate_potential_songs(song_df: pd.DataFrame, listen_data: dict) -> list:
     # get 0 - 5 random songs from the favourites
     try:
         favourites = df[df['is_favorite']].index
-        daily_playlist_items.extend([random.choice(favourites) for _ in range(random.randint(0, 5))])
+        daily_playlist_items.extend([random.choice(favourites) for _ in range(random.randint(0,
+                                                                                             min(len(favourites), 5)))])
     except KeyError:
         pass
 
     # some issue with the daily_playlist_items, so we need to get the working keys
-    working = df.index.intersection(daily_playlist_items)
+    relevant_ids = df.index.intersection(daily_playlist_items)
+    attribute_df = df.loc[relevant_ids]
 
-    # get the artists of daily_playlist_items and for each one get 7-10 songs randomly
-    artists = df.loc[working, 'album_artist'].unique()
-    try:
-        for artist in artists:
-            artist_songs = df[df['album_artist'] == artist].index
-            daily_playlist_items.extend([random.choice(artist_songs) for _ in range(random.randint(7, 10))])
-    except KeyError:
-        pass
+    # for each artist in daily_playlist_items, get 7-10 songs randomly
+    daily_playlist_items.extend(random_songs_by_attribute(attribute_df, 'album_artist', 7, 10))
 
-    # get the albums of daily_playlist_items and for each one get 7-10 songs randomly
-    albums = df.loc[working, 'album_id'].unique()
-    try:
-        for album in albums:
-            album_songs = df[df['album_id'] == album].index
-            daily_playlist_items.extend([random.choice(album_songs) for _ in range(random.randint(7, 10))])
-    except KeyError:
-        pass
+    # for each album in daily_playlist_items, get 7-10 songs randomly
+    daily_playlist_items.extend(random_songs_by_attribute(attribute_df, 'album_id', 7, 10))
 
     # get 10-15 random songs from the rest of the songs where playcount > 3
-    try:
-        rest_songs = df[df['play_count'] > 3].index
-        daily_playlist_items.extend([random.choice(rest_songs) for _ in range(random.randint(10, 15))])
-    except KeyError:
-        pass
+    daily_playlist_items.extend(random_songs_by_play_count(df, 3, 99, 10, 15))
 
     # get 5-10 random songs from the rest of the songs where playcount <= 3
-    try:
-        rest_songs = df[df['play_count'] <= 3].index
-        daily_playlist_items.extend([random.choice(rest_songs) for _ in range(random.randint(5, 10))])
-    except KeyError:
-        pass
+    daily_playlist_items.extend(random_songs_by_play_count(df, -1, 4, 5, 10))
 
     # mix the daily_playlist_items while retaining the order of the first 10 songs
     try:
@@ -256,7 +269,7 @@ def prune_playlist(song_df: pd.DataFrame, listen_data: dict, daily_playlist_item
     return daily_playlist_items
 
 
-def create_random_playlist(song_df: pd.DataFrame, listen_data: dict, length=360000) -> list:
+def create_random_playlist(song_df: pd.DataFrame, listen_data: dict, length: int = 360000) -> list:
     daily_playlist_items = culminate_potential_songs(song_df, listen_data)
     # pruning the list
     daily_playlist_items = prune_playlist(song_df, listen_data, daily_playlist_items, length)
@@ -305,6 +318,6 @@ if __name__ == '__main__':
     playlist = create_random_playlist(pd.DataFrame(song_data).T, listen_data, PLAYLIST_LENGTH * 60 * 60)
     playlist_status = create_jellyfin_playlist(user_id, PLAYLIST_NAME, playlist)
     if playlist_status == 200:
-         print("Playlist created successfully:", playlist_status)
+        print("Playlist created successfully:", playlist_status)
     else:
-         print("Playlist creation failed:", playlist_status)
+        print("Playlist creation failed:", playlist_status)
