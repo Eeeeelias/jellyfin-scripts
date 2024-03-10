@@ -26,12 +26,12 @@ headers = {'Authorization': f'MediaBrowser Client="{CLIENT}", Device="{DEVICE}",
 
 
 # scoring function for the song rank
-def score_function(recent_play_count: int, total_play_count: int, days_since_last_played: int,
-                   weights: tuple[float, float, float] = (0.55, 0.25, 0.2), decay_rate: float = 0.5) -> float:
-    # weights: (recent_play_count, total_play_count, days_since_last_played)
-    return ((weights[0] * recent_play_count) +
-            (weights[1] * (1 / 1 + math.e ** ((-decay_rate) * days_since_last_played))) +
-            (weights[2] * (total_play_count / (1 + total_play_count))))
+def score_function(recent_play_normal: int, total_play_count: int, days_since_last_played: int,
+                   weights: tuple[float, float, float] = (0.60, 0.25, 0.15), decay_rate: float = 0.5) -> float:
+    frequency = recent_play_normal
+    recency = (1 / (1 + math.e ** (decay_rate * days_since_last_played)))
+    high_play_decay = (1/(1+math.log(1+total_play_count, 2)))
+    return weights[0] * frequency + weights[1] * recency + weights[2] * high_play_decay
 
 
 # rank the songs by the play_count and the artist play_count to get songs that have been played a lot recently
@@ -55,7 +55,8 @@ def rank_recent_by_activity(df: pd.DataFrame, list_activity: dict, lookup_df) ->
         df.loc[df.index == i[1], 'last_7_days'] += 1
     df['last_played'] = pd.to_datetime(df['last_played'], utc=True)
     df['days_since_last_played'] = (pd.to_datetime('now', utc=True) - df['last_played']).dt.days
-    df['rank'] = df.apply(lambda x: score_function(x['last_7_days'], x['play_count'], x['days_since_last_played']),
+    max_plays_7_days = df['last_7_days'].max()
+    df['rank'] = df.apply(lambda x: score_function(x['last_7_days'] / max_plays_7_days, x['play_count'], x['days_since_last_played']),
                           axis=1)
     df = df.sort_values('rank', ascending=False)
     return df.head(50)
@@ -200,9 +201,15 @@ def culminate_potential_songs(song_df: pd.DataFrame, listen_data: dict) -> list:
     df = song_df.sort_values('last_played', ascending=False)
     top_latest = rank_recent_by_activity(df.head(100), listen_data, df) if listen_data else rank_recent(df.head(100))
 
+    # add 10 songs from the top_latest to daily_playlist_items with weights where weights are the rank
+    daily_playlist_items.extend(top_latest.sample(n=10, weights='rank').index)
+
+    similars = []
+    # for each song in daily_playlist_items, get 3 similar songs, this is probably lighter than doing it for 50 songs
     for i in top_latest.index:
         similar = get_similar(i)
-        daily_playlist_items.extend(similar[:3])
+        similars.extend(similar[:3])
+    daily_playlist_items.extend(similars)
 
     # for the five best artists, get at max 5 songs as the other songs will likely come by the other methods
     top_artists = top_latest['album_artist'].value_counts().head(5).index
@@ -261,6 +268,7 @@ def prune_playlist(song_df: pd.DataFrame, listen_data: dict, daily_playlist_item
     # limit the playlist to 6 hours
     playlist_length = sum([song_df.loc[i, 'length'] for i in daily_playlist_items])
     while playlist_length > length:
+        # remove the last song
         daily_playlist_items.pop()
         playlist_length = sum([song_df.loc[i, 'length'] for i in daily_playlist_items])
 
