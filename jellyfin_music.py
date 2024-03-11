@@ -26,8 +26,11 @@ headers = {'Authorization': f'MediaBrowser Client="{CLIENT}", Device="{DEVICE}",
 
 
 # scoring function for the song rank
-def score_function(recent_play_normal: int, total_play_count: int, days_since_last_played: int,
-                   weights: tuple[float, float, float] = (0.60, 0.25, 0.15), decay_rate: float = 0.5) -> float:
+def score_function(recent_play_normal: float, total_play_count: int, days_since_last_played: int,
+                   weights: tuple[float, float, float] = (0.60, 0.25, 0.15), decay_rate: float = 0.5,
+                   min_play_threshold: int = 3) -> float:
+    if total_play_count < min_play_threshold:
+        return 0
     frequency = recent_play_normal
     recency = (1 / (1 + math.e ** (decay_rate * days_since_last_played)))
     high_play_decay = (1/(1+math.log(1+total_play_count, 2)))
