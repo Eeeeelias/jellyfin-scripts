@@ -148,14 +148,19 @@ def check_single_song(song_id: str, listen_data: list, total_length: int) -> boo
         return True
 
 
-def check_single_song_by_skip(song_id: str, listen_data: list, total_length: int) -> bool:
-    listen_data = [i for i in listen_data if i[1] == song_id]
-
+def check_single_song_by_skip(song_id: str, listen_data: list, total_length: int, total_plays: int) -> bool:
+    # if there is no listen data, assume that the song is good
     if not listen_data:
         return True
 
+    listen_data = [i for i in listen_data if i[1] == song_id]
+
+    # listen_data must exist but no entries for song means that it was skipped every time
+    if not listen_data and total_plays > 0:
+        return False
+
     for i, p in enumerate(listen_data):
-        if int(p[2]) < total_length * 0.8:
+        if min(total_length, int(p[2])) < total_length * 0.8:
             listen_data[i] = listen_data[i] + ["skip"]
         else:
             listen_data[i] = listen_data[i] + ["listen"]
@@ -170,7 +175,8 @@ def check_single_song_by_skip(song_id: str, listen_data: list, total_length: int
     if set([i[3] for i in listen_data[:3]]) == {"skip"}:
         return False
 
-    return True
+    # return the majority of the all plays, if it's a tie, return True
+    return len([i[3] for i in listen_data if i[3] == "listen"]) > total_plays // 2
 
 
 def get_similar(song_id: str) -> list:
@@ -271,7 +277,7 @@ def prune_playlist(song_df: pd.DataFrame, listen_data: list, daily_playlist_item
         for i in daily_playlist_items:
             if song_df.loc[i, 'play_count'] < 1:
                 continue
-            if not check_single_song_by_skip(i, listen_data, song_df.loc[i, 'length']):
+            if not check_single_song_by_skip(i, listen_data, song_df.loc[i, 'length'], song_df.loc[i, 'play_count']):
                 to_remove.append(i)
         daily_playlist_items = [i for i in daily_playlist_items if i not in to_remove]
 
