@@ -167,7 +167,10 @@ def check_single_song_by_skip(song_id: str, listen_data: list, total_length: int
 
     # assume that the list is sorted by date in descending order
     # if the user listened to it last time, they probably like it, at worst it's a false positive
-    if listen_data[0][3] == "listen" or len(listen_data) < 3:
+    # TODO: make sure listen data is at least half of the total plays since Playback Reporting seems unable to capture
+    #  when the song was skipped early on
+    if ((listen_data[0][3] == "listen" and len(listen_data) >= total_plays // 2) or
+            (len(listen_data) < 3 and total_plays < 3)):
         return True
 
     # if the user skipped it last time, we have to check if they usually listen to it
