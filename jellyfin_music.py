@@ -167,8 +167,6 @@ def check_single_song_by_skip(song_id: str, listen_data: list, total_length: int
 
     # assume that the list is sorted by date in descending order
     # if the user listened to it last time, they probably like it, at worst it's a false positive
-    # TODO: make sure listen data is at least half of the total plays since Playback Reporting seems unable to capture
-    #  when the song was skipped early on
     if ((listen_data[0][3] == "listen" and len(listen_data) >= total_plays // 2) or
             (len(listen_data) < 3 and total_plays < 3)):
         return True
@@ -256,10 +254,10 @@ def culminate_potential_songs(song_df: pd.DataFrame, listen_data: list) -> list:
     # for each album in daily_playlist_items, get 7-10 songs randomly
     daily_playlist_items.extend(random_songs_by_attribute(attribute_df, 'album_id', 7, 10))
 
-    # get 10-15 random songs from the rest of the songs where playcount > 3
+    # get 10-15 random songs from the rest of the songs where play_count > 3
     daily_playlist_items.extend(random_songs_by_play_count(df, 3, 99, 10, 15))
 
-    # get 5-10 random songs from the rest of the songs where playcount <= 3
+    # get 5-10 random songs from the rest of the songs where play_count <= 3
     daily_playlist_items.extend(random_songs_by_play_count(df, -1, 4, 5, 10))
 
     # mix the daily_playlist_items while retaining the order of the first 10 songs
