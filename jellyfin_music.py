@@ -209,6 +209,13 @@ def random_songs_by_play_count(song_df: pd.DataFrame, min_play_count: int, max_p
         return []
 
 
+def random_stuffing(daily_playlist_items: list, extra: int = 5) -> list:
+    # just add some similar songs from a random song in the playlist
+    similar = get_similar(random.choice(daily_playlist_items[:min(10, len(daily_playlist_items))]))
+    daily_playlist_items.extend(similar[:extra])
+    return daily_playlist_items
+
+
 def culminate_potential_songs(song_df: pd.DataFrame, listen_data: list) -> list:
     daily_playlist_items = []
     # convert date to datetime
@@ -273,6 +280,10 @@ def culminate_potential_songs(song_df: pd.DataFrame, listen_data: list) -> list:
 
 # remove songs that are duplicated or probably unfit for the playlist
 def prune_playlist(song_df: pd.DataFrame, listen_data: list, daily_playlist_items: list, length: int) -> list:
+
+    # check and remove duplicates without using set to retain order
+    daily_playlist_items = [i for n, i in enumerate(daily_playlist_items) if i not in daily_playlist_items[:n]]
+
     if listen_data:
         to_remove = []
         for i in daily_playlist_items:
@@ -282,11 +293,23 @@ def prune_playlist(song_df: pd.DataFrame, listen_data: list, daily_playlist_item
                 to_remove.append(i)
         daily_playlist_items = [i for i in daily_playlist_items if i not in to_remove]
 
-    # check and remove duplicates without using set to retain order
-    daily_playlist_items = [i for n, i in enumerate(daily_playlist_items) if i not in daily_playlist_items[:n]]
-
-    # limit the playlist to 6 hours
+    # limit or stuff the playlist to 6 hours
     playlist_length = sum([song_df.loc[i, 'length'] for i in daily_playlist_items])
+
+    # if the playlist is too short, add more songs that are similar to the first few
+    extension_constant = 5
+    while playlist_length < length:
+        stuff_songs = random_stuffing(daily_playlist_items, extension_constant)
+        stuff_songs = [x for x in stuff_songs if x not in daily_playlist_items and x in song_df.index]
+
+        if listen_data:
+            stuff_songs = [i for i in stuff_songs if check_single_song_by_skip(i, listen_data, song_df.loc[i, 'length'],
+                                                                               song_df.loc[i, 'play_count'])]
+        daily_playlist_items.extend(stuff_songs)
+        playlist_length = sum([song_df.loc[i, 'length'] for i in daily_playlist_items])
+        extension_constant += 1
+
+    # if the playlist is too long, remove the last songs
     while playlist_length > length:
         # remove the last song
         daily_playlist_items.pop()
