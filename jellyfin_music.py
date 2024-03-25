@@ -53,8 +53,11 @@ def rank_recent_by_activity(df: pd.DataFrame, list_activity: list, lookup_df) ->
     df['last_7_days'] = 1
     for i in list_activity:
         # check if the song has been played for at least 80% of the song
-        if int(i[2]) <= lookup_df.loc[lookup_df.index == i[1], 'length'].values[0] * 0.8:
-            df.loc[df.index == i[1], 'last_7_days'] -= 1
+        try:
+            if int(i[2]) <= lookup_df.loc[lookup_df.index == i[1], 'length'].values[0] * 0.8:
+                df.loc[df.index == i[1], 'last_7_days'] -= 1
+                continue
+        except IndexError:
             continue
         df.loc[df.index == i[1], 'last_7_days'] += 1
     df['last_played'] = pd.to_datetime(df['last_played'], utc=True)
