@@ -159,7 +159,7 @@ def check_single_song_by_skip(song_id: str, listen_data: list, total_length: int
     listen_data = [i for i in listen_data if i[1] == song_id]
 
     # listen_data must exist but no entries for song means that it was skipped every time
-    if not listen_data and total_plays > 0:
+    if not listen_data:
         return False
 
     for i, p in enumerate(listen_data):
@@ -170,8 +170,10 @@ def check_single_song_by_skip(song_id: str, listen_data: list, total_length: int
 
     # assume that the list is sorted by date in descending order
     # if the user listened to it last time, they probably like it, at worst it's a false positive
-    if ((listen_data[0][3] == "listen" and len(listen_data) >= total_plays // 2) or
-            (len(listen_data) < 3 and total_plays < 3)):
+    try:
+        if (listen_data[0][3] == "listen") or (len(listen_data) < 3 and total_plays < 3):
+            return True
+    except IndexError:
         return True
 
     # if the user skipped it last time, we have to check if they usually listen to it
@@ -214,9 +216,7 @@ def random_songs_by_play_count(song_df: pd.DataFrame, min_play_count: int, max_p
 
 def random_stuffing(daily_playlist_items: list, extra: int = 5) -> list:
     # just add some similar songs from a random song in the playlist
-    similar = get_similar(random.choice(daily_playlist_items[:min(10, len(daily_playlist_items))]))
-    daily_playlist_items.extend(similar[:extra])
-    return daily_playlist_items
+    return get_similar(random.choice(daily_playlist_items[:min(10, len(daily_playlist_items))]))[:extra]
 
 
 def culminate_potential_songs(song_df: pd.DataFrame, listen_data: list) -> list:
@@ -228,7 +228,7 @@ def culminate_potential_songs(song_df: pd.DataFrame, listen_data: list) -> list:
     top_latest = rank_recent_by_activity(df.head(100), listen_data, df) if listen_data else rank_recent(df.head(100))
 
     # add 10 songs from the top_latest to daily_playlist_items with weights where weights are the rank
-    daily_playlist_items.extend(top_latest.sample(n=10, weights='rank').index)
+    daily_playlist_items.extend(top_latest.sample(n=20, weights='rank').index)
 
     similars = []
     # for each song in daily_playlist_items, get 3 similar songs, this is probably lighter than doing it for 50 songs
@@ -289,7 +289,7 @@ def prune_playlist(song_df: pd.DataFrame, listen_data: list, daily_playlist_item
 
     if listen_data:
         to_remove = []
-        for i in daily_playlist_items:
+        for i in daily_playlist_items[:20]:
             if song_df.loc[i, 'play_count'] < 1:
                 continue
             if not check_single_song_by_skip(i, listen_data, song_df.loc[i, 'length'], song_df.loc[i, 'play_count']):
