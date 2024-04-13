@@ -194,12 +194,15 @@ def get_similar(song_id: str) -> list:
 
 
 def random_songs_by_attribute(song_df: pd.DataFrame, attribute: str, a: int, b: int) -> list:
-    # get the artists of daily_playlist_items and for each one get 7-10 songs randomly
+    # get the artists of daily_playlist_items and for each one get a-b songs randomly
     selected_songs = []
     artists = song_df.loc[:, attribute].unique()
     try:
         for artist in artists:
             attribute_songs = song_df[song_df[attribute] == artist].index
+            if len(attribute_songs) < a:
+                selected_songs.extend(attribute_songs)
+                continue
             selected_songs.extend([random.choice(attribute_songs) for _ in range(random.randint(a, b))])
     except KeyError:
         pass
