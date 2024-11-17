@@ -20,6 +20,9 @@ CLIENT = 'JellyfinWrapped'
 DEVICE = 'JellyfinWrapped'
 VERSION = '1.0.0'
 
+JF_COLOR = "#000B25"
+CMAP = mcolors.LinearSegmentedColormap.from_list("", ["#AA5CC3", "#00A4DC"])
+
 headers = {'Authorization': f'MediaBrowser Client="{CLIENT}", Device="{DEVICE}", '
                             f'Version="{VERSION}", Token="{API_KEY}"'}
 
@@ -154,7 +157,7 @@ def top_genres(all_songs: pd.DataFrame, listen_data: pd.DataFrame):
     return genre_play_count
 
 
-def get_data():
+def get_data(get_raw: bool = False):
     user_id = get_users(USER_NAME)
     all_music = get_all_songs(user_id)
     audio = retrieve_last_time_audio(user_id, duration='year')
@@ -164,18 +167,23 @@ def get_data():
     # for the best artist, get the image
     artist_id = all_music[all_music['album_artist'] == best_artists.index[0]].iloc[0]['artist_id']
     artist_img = retrieve_artist_img(artist_id)
-    best_songs = best_songs_by_artist(all_music, listen_data, artist_id)['song_name'][0:5]
+    best_songs = best_songs_by_artist(all_music, listen_data, artist_id)['song_name']
     # output_image = make_info_image(artist_img, best.index[0], best.iloc[0], best_songs)
     total_listen_time = total_play_time(listen_data, all_music)
-    genres = top_genres(all_music, listen_data)[0:5]
+    genres = top_genres(all_music, listen_data)
+
+    if get_raw:
+        # add to the listen data the song name as well as the length of the song if it is available
+        relevant_items = set(listen_data['item_id'])
+        all_music = all_music[all_music.index.isin(relevant_items)]
+        listen_data['song_name'] = listen_data['item_id'].map(all_music['song_name'])
+        listen_data['length'] = listen_data['item_id'].map(all_music['length'])
+        return best_artists, best_songs, total_listen_time, genres, artist_img, all_music, listen_data
 
     # Save or display the output image (for example, to a file or in a notebook)
     # output_image.show()  # To display the image
-    return list(best_artists[0:5].index), list(best_songs), total_listen_time, list(genres.index), artist_img
+    return list(best_artists[0:5].index), list(best_songs[0:5]), total_listen_time, list(genres[0:5].index), artist_img
 
-
-JF_COLOR = "#000B25"
-CMAP = mcolors.LinearSegmentedColormap.from_list("", ["#AA5CC3", "#00A4DC"])
 
 def add_rounded_corners(image, radius):
     # Create a mask for the image with rounded corners
