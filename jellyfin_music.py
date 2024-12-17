@@ -81,19 +81,21 @@ def get_users(user=None) -> dict | str:
 
 
 def get_all_songs(user_id: str) -> dict:
-    request = f"{JELLYFIN_IP}/Users/{user_id}/Items?SortBy=Album,SortName&SortOrder=Ascending&" \
-              f"IncludeItemTypes=Audio&Recursive=true&Fields=AudioInfo,ParentId,Path,Genres&StartIndex=0&ImageTypeLimit=1&" \
-              f"ParentId=7e64e319657a9516ec78490da03edccb"
+    request = f"{JELLYFIN_IP}/Users/{user_id}/Items?SortBy=Album,SortName&SortOrder=Ascending" \
+              f"&IncludeItemTypes=Audio&Recursive=true&Fields=AudioInfo,ParentId,Path,Genres&StartIndex=0&ImageTypeLimit=1" \
     sessions = requests.get(request, headers=headers)
     session_data = sessions.json()
     items = {}
-    print("Songs:", len(session_data.get('Items')))
     for i in session_data.get('Items'):
         play_count = i['UserData']['PlayCount']
         try:
             last_played = i['UserData']['LastPlayedDate']
         except KeyError:
             last_played = None
+        if 'AlbumId' not in i:
+            print("something did not work couldnt find AlbumId in:")
+            print(i)
+
         album_id = i['AlbumId']
         try:
             album_artist = i['AlbumArtist']
@@ -230,8 +232,11 @@ def culminate_potential_songs(song_df: pd.DataFrame, listen_data: list) -> list:
     df = song_df.sort_values('last_played', ascending=False)
     top_latest = rank_recent_by_activity(df.head(100), listen_data, df) if listen_data else rank_recent(df.head(100))
 
+    # i dont know why but sample doesn't work when there are less nonzero values than n
+    top_latest_nonzero = top_latest[top_latest['rank'] > 0]
+    sample_size = min(20, len(top_latest_nonzero))
     # add 10 songs from the top_latest to daily_playlist_items with weights where weights are the rank
-    daily_playlist_items.extend(top_latest.sample(n=20, weights='rank').index)
+    daily_playlist_items.extend(top_latest.sample(n=sample_size, weights='rank').index)
 
     similars = []
     # for each song in daily_playlist_items, get 3 similar songs, this is probably lighter than doing it for 50 songs
@@ -347,7 +352,7 @@ def create_random_playlist(song_df: pd.DataFrame, listen_data: list, recency: in
 
 def create_jellyfin_playlist(user_id: str, playlist_name: str, playlist_items: list) -> int:
     # get all playlists and filter for the playlist_name, if it exists, delete it
-    request = f"{JELLYFIN_IP}/Users/{user_id}/Items?parentId=821d3a92eeb242a0a3a67a6e7fafe481"
+    request = f"{JELLYFIN_IP}/Users/{user_id}/Items?Recursive=true"
     sessions = requests.get(request, headers=headers)
     session_data = sessions.json()
     for i in session_data['Items']:
