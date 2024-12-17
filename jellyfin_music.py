@@ -82,7 +82,7 @@ def get_users(user=None) -> dict | str:
 
 def get_all_songs(user_id: str) -> dict:
     request = f"{JELLYFIN_IP}/Users/{user_id}/Items?SortBy=Album,SortName&SortOrder=Ascending" \
-              f"&IncludeItemTypes=Audio&Recursive=true&Fields=AudioInfo,ParentId,Path,Genres&StartIndex=0&ImageTypeLimit=1" \
+              f"&IncludeItemTypes=Audio&Recursive=true&Fields=AudioInfo,ParentId,Path,Genres&StartIndex=0&ImageTypeLimit=1"
     sessions = requests.get(request, headers=headers)
     session_data = sessions.json()
     items = {}
