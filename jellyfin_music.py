@@ -352,7 +352,7 @@ def create_random_playlist(song_df: pd.DataFrame, listen_data: list, recency: in
 
 def create_jellyfin_playlist(user_id: str, playlist_name: str, playlist_items: list) -> int:
     # get all playlists and filter for the playlist_name, if it exists, delete it
-    request = f"{JELLYFIN_IP}/Users/{user_id}/Items?Recursive=true"
+    request = f"{JELLYFIN_IP}/Users/{user_id}/Items?IncludeItemTypes=Playlist&Recursive=true"
     sessions = requests.get(request, headers=headers)
     session_data = sessions.json()
     for i in session_data['Items']:
