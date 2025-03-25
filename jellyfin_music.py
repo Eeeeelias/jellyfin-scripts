@@ -97,7 +97,11 @@ def get_all_songs(user_id: str) -> dict:
             print("something did not work couldnt find AlbumId in:")
             print(i)
 
-        album_id = i['AlbumId']
+        try:
+            album_id = i['AlbumId']
+        except KeyError:
+            print(f"Skipping {i['Name']}")
+            continue
         try:
             album_artist = i['AlbumArtist']
             if album_artist == 'Various Artists':
