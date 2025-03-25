@@ -17,6 +17,7 @@ JELLYFIN_IP = os.getenv('JELLYFIN_IP')
 USER_NAME = os.getenv('USER_NAME')
 PLAYLIST_LENGTH = int(os.getenv('PLAYLIST_LENGTH')) if os.getenv('PLAYLIST_LENGTH') else 6
 PLAYLIST_NAME = os.getenv('PLAYLIST_NAME') if os.getenv('PLAYLIST_NAME') else 'Daily Random Playlist'
+EXCLUDE_SONGS_UNDER = int(os.getenv('EXCLUDE_SONGS_UNDER')) if os.getenv('EXCLUDE_SONGS_UNDER') else 0
 
 CLIENT = 'DailyPlaylistCreator'
 DEVICE = 'DailyPlaylistCreator'
@@ -154,6 +155,10 @@ def check_single_song(song_id: str, listen_data: list, total_length: int) -> boo
 
 
 def check_single_song_by_skip(song_id: str, listen_data: list, total_length: int, total_plays: int) -> bool:
+    # if the song is too short, exclude it
+    if total_length < EXCLUDE_SONGS_UNDER:
+        return False
+
     # if there is no listen data, assume that the song is good
     if not listen_data:
         return True

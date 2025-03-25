@@ -52,7 +52,10 @@ def get_all_songs(user_id: str) -> dict:
             last_played = i['UserData']['LastPlayedDate']
         except KeyError:
             last_played = None
-        album_id = i['AlbumId']
+        try:
+            album_id = i['AlbumId']
+        except KeyError:
+            continue
         try:
             album_artist = i['AlbumArtist']
             if album_artist == 'Various Artists':
@@ -117,13 +120,16 @@ def rank_by_most_listened(all_songs: pd.DataFrame, listen_data: pd.DataFrame):
     artist_play_count = artist_play_count.sort_values(ascending=False)
     return artist_play_count
 
-def best_songs_by_artist(all_songs: pd.DataFrame, listen_data: pd.DataFrame, artist_id: str):
+def get_best_songs(all_songs: pd.DataFrame, listen_data: pd.DataFrame, artist_id: str = None):
     relevant_items = set(listen_data['item_id'])
     all_songs = all_songs[all_songs.index.isin(relevant_items)]
     song_play_count = Counter(listen_data['item_id'])
     all_songs['play_count'] = all_songs.index.map(song_play_count)
-    artist_play_count = all_songs[all_songs['artist_id'] == artist_id]
-    artist_play_count = artist_play_count.sort_values('play_count', ascending=False)
+    if artist_id:
+        artist_play_count = all_songs[all_songs['artist_id'] == artist_id]
+        artist_play_count = artist_play_count.sort_values('play_count', ascending=False)
+    else:
+        artist_play_count = all_songs.sort_values('play_count', ascending=False)
     return artist_play_count
 
 
@@ -167,7 +173,7 @@ def get_data(get_raw: bool = False):
     # for the best artist, get the image
     artist_id = all_music[all_music['album_artist'] == best_artists.index[0]].iloc[0]['artist_id']
     artist_img = retrieve_artist_img(artist_id)
-    best_songs = best_songs_by_artist(all_music, listen_data, artist_id)['song_name']
+    best_songs = get_best_songs(all_music, listen_data)['song_name']
     # output_image = make_info_image(artist_img, best.index[0], best.iloc[0], best_songs)
     total_listen_time = total_play_time(listen_data, all_music)
     genres = top_genres(all_music, listen_data)
@@ -316,11 +322,11 @@ def make_info_image(artist_img, artist_names, play_time, song_names, top_genre, 
     add_text(canvas, "Top Artists", position=(first_column_x_start, first_row_y), font_size=30, color=(0, 0, 0))
     add_text(canvas, "Top Songs", position=(second_column_x_start, first_row_y), font_size=30, color=(0, 0, 0))
     for i, artist_name in enumerate(artist_names):
-        add_text(canvas, f"{i + 1} {artist_name}", position=(first_column_x_start, first_row_y + 50 + i * 40),
+        add_text(canvas, f"{i + 1} {artist_name.strip()}", position=(first_column_x_start, first_row_y + 50 + i * 40),
                  column_end=first_column_x_end, bold_font=True, font_size=30, color=(0, 0, 0))
 
     for i, song_name in enumerate(song_names):
-        add_text(canvas, f"{i + 1} {song_name}", position=(second_column_x_start, first_row_y + 50 + i * 40),
+        add_text(canvas, f"{i + 1} {song_name.strip()}", position=(second_column_x_start, first_row_y + 50 + i * 40),
                  bold_font=True, column_end=second_column_x_end, font_size=30, color=(0, 0, 0))
 
     # second row

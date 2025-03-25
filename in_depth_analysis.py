@@ -89,8 +89,8 @@ def most_items(best_artists, best_genres, listen_data, save=False):
 
     sns.barplot(y=best_genres[:10].index, x=best_genres[:10], palette=colors, ax=ax[2])
     ax[2].set_title("Top Genres")
-    ax[2].set_ylabel("Play count")
-    ax[2].set_xlabel("Genre")
+    ax[2].set_ylabel("Genre")
+    ax[2].set_xlabel("Play count")
 
     # remove top and right spines
     for i in range(3):
